@@ -1,0 +1,30 @@
+# Environnements virtuels
+venv/
+venv_moderation/
+.env/
+
+# Données et modèles volumineux
+dataset/
+
+# Fichiers temporaires
+*.log
+*.tmp
+*.bak
+__pycache__/
+*.pyc
+
+# Config locales
+*.env
+*.DS_Store
+
+# Cache et build
+.cache/
+build/
+dist/
+*.egg-info/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
