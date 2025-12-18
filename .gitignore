@@ -1,10 +1,18 @@
 # Environnements virtuels
 venv/
+.venv/
 venv_moderation/
 .env/
 
 # Données et modèles volumineux
 dataset/
+model/*.h5
+model/*.pkl
+*.h5
+*.pkl
+
+# GloVe embeddings (très volumineux)
+dataset/glove.6B/
 
 # Fichiers temporaires
 *.log
@@ -15,6 +23,7 @@ __pycache__/
 
 # Config locales
 *.env
+.env
 *.DS_Store
 
 # Cache et build
@@ -22,9 +31,23 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+ivy_cache/
 
 # Notebooks checkpoints
 .ipynb_checkpoints/
 
 # VS Code settings
 .vscode/
+
+# Docker volumes data
+mongo_data/
+postgres_data/
+
+# Kafka local (non utilisé - Docker)
+kafka/kafka_2.13*/
+kafka/kraft-combined-logs/
+
+# Tokens et secrets (NE JAMAIS COMMIT)
+# Remplacer par des variables d'environnement
+*_token.txt
+secrets/

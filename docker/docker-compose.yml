@@ -1,0 +1,277 @@
+# ============================================================================
+# DOCKER COMPOSE - Pipeline Streaming Analyse Commentaires Toxiques
+# ============================================================================
+# Architecture:
+#   Facebook API → Producer → Kafka → Spark Streaming → PostgreSQL → Streamlit
+#
+# Topics Kafka (multi-topics):
+#   - data.raw.stream      : Commentaires bruts
+#   - data.cleaned.stream  : Commentaires nettoyés
+#   - data.features.stream : Features NLP extraits
+#   - data.predictions.stream : Prédictions toxicité
+#
+# Lancement: docker-compose up --build
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # KAFKA (KRaft Mode - sans Zookeeper)
+  # ==========================================================================
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - toxic-pipeline
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ==========================================================================
+  # KAFKA INIT - Création des Topics
+  # ==========================================================================
+  kafka-init:
+    image: apache/kafka:latest
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo '🚀 Création des topics Kafka...'
+      
+      sleep 5
+      
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic data.raw.stream --partitions 3 --replication-factor 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic data.cleaned.stream --partitions 3 --replication-factor 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic data.features.stream --partitions 3 --replication-factor 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic data.predictions.stream --partitions 3 --replication-factor 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic data.labels.stream --partitions 3 --replication-factor 1
+      
+      echo '✅ Topics créés:'
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+      "
+    networks:
+      - toxic-pipeline
+
+  # ==========================================================================
+  # POSTGRESQL
+  # ==========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: toxic_coments_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: majid2020
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - toxic-pipeline
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d toxic_coments_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # PRODUCER - Facebook Comments → Kafka (data.raw.stream)
+  # ==========================================================================
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: producer-facebook
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC_RAW: data.raw.stream
+      POLLING_INTERVAL: ${POLLING_INTERVAL:-15}
+      PRODUCER_MODE: ${PRODUCER_MODE:-test}
+      FACEBOOK_ACCESS_TOKEN: ${FACEBOOK_ACCESS_TOKEN:-YOUR_TOKEN_HERE}
+      FACEBOOK_PAGE_ID: ${FACEBOOK_PAGE_ID:-143748515489111}
+    networks:
+      - toxic-pipeline
+    restart: unless-stopped
+
+  # ==========================================================================
+  # SPARK STREAMING - Normalizer
+  # data.raw.stream → data.cleaned.stream
+  # ==========================================================================
+  spark-normalizer:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-normalizer
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC_RAW: data.raw.stream
+      KAFKA_TOPIC_CLEANED: data.cleaned.stream
+      CHECKPOINT_DIR: /app/checkpoints/normalizer
+      TRIGGER_INTERVAL: 5 seconds
+    volumes:
+      - spark_checkpoints:/app/checkpoints
+    command: >
+      spark-submit 
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 
+      --conf spark.driver.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2 
+      --conf spark.executor.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2 
+      /app/stream_normalizer.py
+    networks:
+      - toxic-pipeline
+    restart: unless-stopped
+
+  # ==========================================================================
+  # SPARK STREAMING - Feature Builder
+  # data.cleaned.stream → data.features.stream
+  # ==========================================================================
+  spark-features:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-features
+    depends_on:
+      - spark-normalizer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC_CLEANED: data.cleaned.stream
+      KAFKA_TOPIC_FEATURES: data.features.stream
+      CHECKPOINT_DIR: /app/checkpoints/feature_builder
+      TRIGGER_INTERVAL: 5 seconds
+    volumes:
+      - spark_checkpoints:/app/checkpoints
+    command: >
+      spark-submit 
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 
+      --conf spark.driver.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2 
+      --conf spark.executor.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2 
+      /app/feature_builder.py
+    networks:
+      - toxic-pipeline
+    restart: unless-stopped
+
+  # ==========================================================================
+  # SPARK STREAMING - Model Serving
+  # data.features.stream → data.predictions.stream → PostgreSQL
+  # ==========================================================================
+  spark-model:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-model
+    depends_on:
+      - spark-features
+      - postgres
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC_FEATURES: data.features.stream
+      KAFKA_TOPIC_PREDICTIONS: data.predictions.stream
+      CHECKPOINT_DIR: /app/checkpoints/model_serving
+      TRIGGER_INTERVAL: 5 seconds
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: toxic_coments_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: majid2020
+      TOXICITY_THRESHOLD: 0.5
+    volumes:
+      - spark_checkpoints:/app/checkpoints
+    command: >
+      spark-submit 
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.0 
+      --conf spark.driver.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2 
+      --conf spark.executor.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2 
+      /app/model_serving.py
+    networks:
+      - toxic-pipeline
+    restart: unless-stopped
+
+  # ==========================================================================
+  # STREAMLIT DASHBOARD
+  # ==========================================================================
+  streamlit:
+    build:
+      context: ./streamlit
+      dockerfile: Dockerfile
+    container_name: streamlit
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: toxic_coments_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: majid2020
+    networks:
+      - toxic-pipeline
+    restart: unless-stopped
+
+  # ==========================================================================
+  # KAFKA UI (optionnel - pour monitoring)
+  # ==========================================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: toxic-pipeline
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    networks:
+      - toxic-pipeline
+
+# ==========================================================================
+# VOLUMES
+# ==========================================================================
+volumes:
+  kafka_data:
+    driver: local
+  postgres_data:
+    driver: local
+  spark_checkpoints:
+    driver: local
+
+# ==========================================================================
+# NETWORKS
+# ==========================================================================
+networks:
+  toxic-pipeline:
+    driver: bridge
+    name: toxic-pipeline-network
