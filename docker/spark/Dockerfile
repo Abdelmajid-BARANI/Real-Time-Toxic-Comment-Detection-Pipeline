@@ -14,6 +14,10 @@ COPY stream_normalizer.py /app/
 COPY feature_builder.py /app/
 COPY model_serving.py /app/
 
+# Copy ML model and tokenizer
+COPY toxic_model.h5 /app/
+COPY tokenizer.pkl /app/
+
 # Create checkpoint directories
 RUN mkdir -p /app/checkpoints/normalizer \
     /app/checkpoints/feature_builder \

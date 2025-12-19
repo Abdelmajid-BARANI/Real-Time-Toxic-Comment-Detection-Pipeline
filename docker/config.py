@@ -30,7 +30,7 @@ for directory in [CHECKPOINT_DIR, LOGS_DIR]:
 FACEBOOK_CONFIG = {
     "access_token": os.getenv(
         "FACEBOOK_ACCESS_TOKEN",
-        "YOUR_ACCESS_TOKEN_HERE"
+        "EAATQPWLZCNMkBQEzRmzTCeG8ZAih1zHwen9h5ZA6Q4fuG63PyUJUgccWsMsjQMuGkUW1NAb5PfeBlIsJtsX3dyijzBhqQpg0HYuhjqBVIWiSdjhjkJGmdMopraMtwV3ZCr8A1mwMZB65Lb1CUulZAiY7NeZCBdDxLvf1jZBWhFNNOh0P3tIU0OZBa8eGggGpxFlpA5sEMog3njILhS0seiCfFPdcHJZA78ckOw73zytgZDZD"
     ),
     "page_id": os.getenv("FACEBOOK_PAGE_ID", "143748515489111"),
     "api_version": "v17.0",

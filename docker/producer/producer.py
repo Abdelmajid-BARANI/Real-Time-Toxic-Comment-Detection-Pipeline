@@ -44,7 +44,7 @@ FACEBOOK_BASE_URL = f"https://graph.facebook.com/{FACEBOOK_API_VERSION}"
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 KAFKA_TOPIC_RAW = os.getenv("KAFKA_TOPIC_RAW", "data.raw.stream")
 
-POLLING_INTERVAL = int(os.getenv("POLLING_INTERVAL", "30"))
+POLLING_INTERVAL = int(os.getenv("POLLING_INTERVAL", "15"))
 MAX_COMMENTS_PER_REQUEST = 100
 
 # ===========================================================================
