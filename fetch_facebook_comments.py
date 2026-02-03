@@ -33,7 +33,7 @@ from kafka.errors import KafkaError
 # Facebook API
 ACCESS_TOKEN = os.getenv(
     "FACEBOOK_ACCESS_TOKEN",
-    "EAATQPWLZCNMkBQEzRmzTCeG8ZAih1zHwen9h5ZA6Q4fuG63PyUJUgccWsMsjQMuGkUW1NAb5PfeBlIsJtsX3dyijzBhqQpg0HYuhjqBVIWiSdjhjkJGmdMopraMtwV3ZCr8A1mwMZB65Lb1CUulZAiY7NeZCBdDxLvf1jZBWhFNNOh0P3tIU0OZBa8eGggGpxFlpA5sEMog3njILhS0seiCfFPdcHJZA78ckOw73zytgZDZD"  # Remplacer par votre token
+    "EAATQPWLZCNMkBQJxk3j3znlpYPsz93ofg6ez3EjZCzKQ3375hvnn6jkCPsqyl55cCNVzdKNQjVDDNyCPzLbZCcxdlldRNF9jw9qgxwZBzmoqfevnvq1cXnpJ1zM3y7CK8c5ZAFg9uPzOHE1FPBHZBToQ3k4CuCSQY2oQH77UZAFUctDq5pFiYUC3P1x6MzUiVNUHlesjGZCZCUWjT4JgOO1kHG4R8QaDCr10dMwPOlcAqWwZDZD"  # Remplacer par votre token
 )
 PAGE_ID = os.getenv("FACEBOOK_PAGE_ID", "143748515489111")
 API_VERSION = "v17.0"

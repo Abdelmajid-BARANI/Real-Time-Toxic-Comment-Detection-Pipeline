@@ -281,26 +281,60 @@ def create_spark_session() -> SparkSession:
 # ===========================================================================
 
 def write_to_postgres(df, epoch_id):
-    """Écrit un batch vers PostgreSQL"""
+    """Écrit un batch vers PostgreSQL avec gestion des doublons"""
     if df.count() == 0:
         return
     
     logger.info(f"📝 Écriture PostgreSQL - Batch {epoch_id}: {df.count()} lignes")
     
     try:
-        df.write \
-            .format("jdbc") \
-            .option("url", POSTGRES_URL) \
-            .option("dbtable", POSTGRES_TABLE) \
-            .option("user", POSTGRES_USER) \
-            .option("password", POSTGRES_PASSWORD) \
-            .option("driver", "org.postgresql.Driver") \
-            .mode("append") \
-            .save()
+        # Utiliser une requête temporaire pour UPSERT
+        df.createOrReplaceTempView(f"temp_batch_{epoch_id}")
+        
+        # Connexion PostgreSQL
+        import psycopg2
+        conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            database=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD
+        )
+        cursor = conn.cursor()
+        
+        # Insérer ligne par ligne avec ON CONFLICT DO UPDATE
+        for row in df.collect():
+            cursor.execute("""
+                INSERT INTO facebook_comments_analysis 
+                (post_id, comment_id, username, comment, cleaned_comment, toxicity_score, 
+                 label, is_toxic, sentiment, sentiment_score, word_count, char_count, 
+                 created_time, ingestion_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (comment_id) 
+                DO UPDATE SET
+                    toxicity_score = EXCLUDED.toxicity_score,
+                    label = EXCLUDED.label,
+                    is_toxic = EXCLUDED.is_toxic,
+                    sentiment = EXCLUDED.sentiment,
+                    sentiment_score = EXCLUDED.sentiment_score,
+                    ingestion_time = EXCLUDED.ingestion_time
+            """, (
+                row.post_id, row.comment_id, row.username, row.comment, row.cleaned_comment,
+                float(row.toxicity_score), row.label, bool(row.is_toxic), row.sentiment,
+                float(row.sentiment_score), row.word_count, row.char_count,
+                row.created_time, row.ingestion_time
+            ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
         
         logger.info(f"✅ Batch {epoch_id} écrit avec succès")
     except Exception as e:
         logger.error(f"❌ Erreur écriture PostgreSQL: {e}")
+        if 'conn' in locals():
+            conn.rollback()
+            conn.close()
 
 # ===========================================================================
 # PIPELINE STREAMING

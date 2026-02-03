@@ -108,9 +108,8 @@ DB_CONFIG = {
     'password': os.getenv('POSTGRES_PASSWORD', 'majid2020')
 }
 
-@st.cache_resource
 def get_connection():
-    """Établit la connexion à PostgreSQL"""
+    """Établit une nouvelle connexion à PostgreSQL"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         return conn
@@ -120,14 +119,18 @@ def get_connection():
 
 def execute_query(query: str, params: tuple = None) -> pd.DataFrame:
     """Exécute une requête SQL et retourne un DataFrame"""
-    conn = get_connection()
-    if conn is None:
-        return pd.DataFrame()
+    conn = None
     try:
+        conn = get_connection()
+        if conn is None:
+            return pd.DataFrame()
         return pd.read_sql(query, conn, params=params)
     except Exception as e:
         st.error(f"❌ Erreur requête: {e}")
         return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
 
 # ===========================================================================
 # DATA FUNCTIONS
